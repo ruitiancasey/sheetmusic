@@ -32,10 +32,13 @@ _MIN_STAFF_CLUSTERS = 1
 COVER_MIN_STAFF_CLUSTERS = 40
 COVER_MIN_STAFF_ROWS = 450
 # Segment filter: drop text/copyright strips after crop.
-SEGMENT_MIN_STAFF_CLUSTERS = 15
+SEGMENT_MIN_STAFF_CLUSTERS = 10
+SEGMENT_MIN_STAFF_CLUSTERS_STRICT = 15
 SEGMENT_MIN_STAFF_ROWS = 80
 # Gap filter: below region must look like a full system, not piano/footer.
 MIN_BELOW_STAFF_CLUSTERS = 30
+# Default system split bar (small ensemble / divider-backed gaps use page_split constants).
+MIN_SYSTEM_STAFF_CLUSTERS = 20
 
 
 @dataclass(frozen=True)

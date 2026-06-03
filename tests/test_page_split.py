@@ -9,7 +9,9 @@ import numpy as np
 from sheet_music_to_slides.page_split import (
     drop_edge_margin_gaps,
     filter_gaps_for_system_splits,
+    find_system_divider_gap_intervals,
     find_vertical_gap_intervals,
+    gap_has_system_divider_mark,
     regions_between_gaps,
 )
 
@@ -102,6 +104,32 @@ class TestPageSplit(unittest.TestCase):
         gaps = [(900, 1000)]
         kept = filter_gaps_for_system_splits(m, gaps)
         self.assertEqual(kept, [(900, 1000)])
+
+    def test_divider_gap_detected_in_side_margins(self) -> None:
+        h, w = 2200, 1700
+        m = np.zeros((h, w), dtype=bool)
+        lx0, lx1 = int(w * 0.10), int(w * 0.16)
+        rx0, rx1 = int(w * 0.84), int(w * 0.90)
+        cx0, cx1 = int(w * 0.35), int(w * 0.85)
+        for y in range(700, 730):
+            m[y, lx0:lx1] = True
+            m[y, rx0:rx1] = True
+        m[:, cx0:cx1] = False
+        gaps = find_system_divider_gap_intervals(m)
+        self.assertEqual(gaps, [(700, 730)])
+        self.assertTrue(gap_has_system_divider_mark(m, 700, 730))
+
+    def test_divider_gap_not_confused_with_center_ink(self) -> None:
+        h, w = 500, 1700
+        m = np.zeros((h, w), dtype=bool)
+        lx0, lx1 = int(w * 0.10), int(w * 0.16)
+        rx0, rx1 = int(w * 0.84), int(w * 0.90)
+        cx0, cx1 = int(w * 0.35), int(w * 0.85)
+        for y in range(100, 120):
+            m[y, lx0:lx1] = True
+            m[y, rx0:rx1] = True
+            m[y, cx0:cx1] = True
+        self.assertEqual(find_system_divider_gap_intervals(m), [])
 
 
 if __name__ == "__main__":

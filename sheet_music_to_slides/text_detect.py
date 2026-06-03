@@ -7,6 +7,7 @@ from PIL import Image
 from sheet_music_to_slides.image_fit import (
     DEFAULT_INK_THRESHOLD,
     SEGMENT_MIN_STAFF_CLUSTERS,
+    SEGMENT_MIN_STAFF_CLUSTERS_STRICT,
     SEGMENT_MIN_STAFF_ROWS,
     count_staff_metrics_img,
 )
@@ -62,6 +63,11 @@ def is_text_only_segment(
     clusters, staff_rows = count_staff_metrics_img(img, white_threshold=white_threshold)
 
     if clusters < SEGMENT_MIN_STAFF_CLUSTERS:
+        return True
+    if (
+        clusters < SEGMENT_MIN_STAFF_CLUSTERS_STRICT
+        and staff_rows < SEGMENT_MIN_STAFF_ROWS
+    ):
         return True
     if clusters < 20 and staff_rows < SEGMENT_MIN_STAFF_ROWS:
         return True
