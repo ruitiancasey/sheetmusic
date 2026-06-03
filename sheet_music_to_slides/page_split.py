@@ -46,10 +46,11 @@ _DIVIDER_LEFT_X1_FRAC = 0.16
 _DIVIDER_RIGHT_X0_FRAC = 0.84
 _DIVIDER_RIGHT_X1_FRAC = 0.90
 _MIN_DIVIDER_MARGIN_INK_PX = 3
-_MIN_DIVIDER_GAP_PX = 3
+_MIN_DIVIDER_GAP_PX = 2
+_DIVIDER_GAP_PAD_PX = 25
 # Smaller ensembles (no piano): lower cluster bar when not divider-backed.
 _MIN_SYSTEM_STAFF_CLUSTERS = 20
-_MIN_DIVIDER_SYSTEM_STAFF_CLUSTERS = 18
+_MIN_DIVIDER_SYSTEM_STAFF_CLUSTERS = 14
 _MIN_DIVIDER_SYSTEM_BLOCK_PX = 200
 # Valley fallback: inter-system gaps usually land in this vertical band.
 _VALLEY_SYSTEM_Y0_FRAC = 0.38
@@ -115,6 +116,38 @@ def gap_has_system_divider_mark(
     return False
 
 
+def _divider_row_groups(mask: np.ndarray) -> list[tuple[int, int]]:
+    """Contiguous y-ranges where side-margin // divider marks appear."""
+    h, _w = mask.shape
+    groups: list[tuple[int, int]] = []
+    y = 0
+    while y < h:
+        if _row_has_system_divider_mark(mask, y):
+            ys = y
+            while y < h and _row_has_system_divider_mark(mask, y):
+                y += 1
+            groups.append((ys, y))
+        else:
+            y += 1
+    return groups
+
+
+def gaps_from_divider_groups(
+    groups: list[tuple[int, int]],
+    page_h: int,
+    *,
+    pad_px: int = _DIVIDER_GAP_PAD_PX,
+) -> list[tuple[int, int]]:
+    """Expand divider row groups into padded split gaps."""
+    out: list[tuple[int, int]] = []
+    for y0, y1 in groups:
+        gs = max(0, y0 - pad_px)
+        ge = min(page_h, y1 + pad_px)
+        if ge - gs >= _MIN_DIVIDER_GAP_PX:
+            out.append((gs, ge))
+    return out
+
+
 def find_system_divider_gap_intervals(
     mask: np.ndarray,
     *,
@@ -122,18 +155,11 @@ def find_system_divider_gap_intervals(
 ) -> list[tuple[int, int]]:
     """Gaps at publisher // system dividers (clear center, ink in both side margins)."""
     h, _w = mask.shape
-    gaps: list[tuple[int, int]] = []
-    y = 0
-    while y < h:
-        if _row_has_system_divider_mark(mask, y):
-            ys = y
-            while y < h and _row_has_system_divider_mark(mask, y):
-                y += 1
-            if y - ys >= min_gap_px:
-                gaps.append((ys, y))
-        else:
-            y += 1
-    return gaps
+    groups = _divider_row_groups(mask)
+    gaps = gaps_from_divider_groups(groups, h)
+    if min_gap_px <= _MIN_DIVIDER_GAP_PX:
+        return gaps
+    return [(gs, ge) for gs, ge in gaps if ge - gs >= min_gap_px]
 
 
 def _merge_nearby_gaps(
@@ -253,6 +279,7 @@ def _is_bass_piano_gap(
     above_h = r_above[1] - r_above[0]
     return (
         below_c < MIN_BELOW_STAFF_CLUSTERS
+        and below_h < _MAX_PIANO_SLIVER_HEIGHT_PX
         and above_h >= 500
         and above_c >= 25
     )
@@ -338,6 +365,7 @@ def filter_gaps_for_system_splits(
     *,
     min_below_staff_clusters: int = MIN_BELOW_STAFF_CLUSTERS,
     page_h: int | None = None,
+    divider_mask: np.ndarray | None = None,
 ) -> list[tuple[int, int]]:
     """
     Keep only gaps that separate two systems (not bass/piano or footer text).
@@ -347,6 +375,7 @@ def filter_gaps_for_system_splits(
         return []
     h, _w = mask.shape
     ph = page_h if page_h is not None else h
+    div_m = divider_mask if divider_mask is not None else mask
     out: list[tuple[int, int]] = []
     for i, gap in enumerate(gaps):
         gs, ge = gap
@@ -356,10 +385,74 @@ def filter_gaps_for_system_splits(
             i,
             min_below_staff_clusters=min_below_staff_clusters,
             page_h=ph,
-            has_divider=gap_has_system_divider_mark(mask, gs, ge),
+            has_divider=gap_has_system_divider_mark(div_m, gs, ge),
         ):
             out.append(gap)
     return out
+
+
+def _best_fullwidth_gap_near(
+    mask: np.ndarray,
+    y_center: int,
+    *,
+    search_radius_px: int = 80,
+) -> tuple[int, int] | None:
+    """Deepest full-width ink valley near y_center."""
+    h, _w = mask.shape
+    row_frac = np.mean(mask, axis=1)
+    y0 = max(0, y_center - search_radius_px)
+    y1 = min(h, y_center + search_radius_px)
+    if y1 <= y0:
+        return None
+    sub = row_frac[y0:y1]
+    if sub.size == 0:
+        return None
+    y_min = int(np.argmin(sub)) + y0
+    spread = float(sub.max()) - float(sub.min())
+    thresh = float(sub.min()) + max(0.008, spread * 0.20)
+    lo, hi = y_min, y_min + 1
+    while lo > y0 and row_frac[lo - 1] <= thresh:
+        lo -= 1
+    while hi < y1 and row_frac[hi] <= thresh:
+        hi += 1
+    if hi - lo < 4:
+        return None
+    return (lo, hi)
+
+
+def _pick_system_split_gaps(
+    mask: np.ndarray,
+    page_h: int,
+    *,
+    min_gap_px: int = DEFAULT_MIN_GAP_PX,
+) -> list[tuple[int, int]]:
+    """Build a small set of likely between-system gaps (dividers + nearby gutters)."""
+    divider_groups = _divider_row_groups(mask)
+    divider_gaps = gaps_from_divider_groups(divider_groups, page_h)
+    strict_gaps = find_vertical_gap_intervals(mask, min_gap_px=min_gap_px)
+    candidates = _merge_nearby_gaps(strict_gaps + divider_gaps)
+
+    if divider_groups:
+        for y0, y1 in divider_groups:
+            center = (y0 + y1) // 2
+            if not any(gs <= center <= ge for gs, ge in candidates):
+                candidates.append((max(0, center - 30), min(page_h, center + 30)))
+        candidates = _merge_nearby_gaps(candidates)
+
+    if divider_groups and len(divider_groups) == 1:
+        first_div_y = divider_groups[0][0]
+        upper = _best_fullwidth_gap_near(
+            mask,
+            first_div_y // 2,
+            search_radius_px=int(first_div_y * 0.35),
+        )
+        if upper is not None and not any(
+            abs((gs + ge) // 2 - (upper[0] + upper[1]) // 2) < 40 for gs, ge in candidates
+        ):
+            candidates.append(upper)
+        candidates = _merge_nearby_gaps(candidates)
+
+    return drop_edge_margin_gaps(page_h, candidates)
 
 
 def drop_edge_margin_gaps(
@@ -398,6 +491,33 @@ def _smooth_1d(arr: np.ndarray, window: int) -> np.ndarray:
     return np.convolve(arr.astype(np.float64), k, mode="same")
 
 
+def find_fullwidth_gap_intervals(
+    mask: np.ndarray,
+    *,
+    min_gap_px: int = 8,
+    max_row_ink_frac: float = 0.025,
+    y0_frac: float = 0.10,
+    y1_frac: float = 0.90,
+) -> list[tuple[int, int]]:
+    """Rows with very little ink across the full page width (true system gutters)."""
+    h, _w = mask.shape
+    row_frac = np.mean(mask, axis=1)
+    y_search0 = int(h * y0_frac)
+    y_search1 = int(h * y1_frac)
+    gaps: list[tuple[int, int]] = []
+    y = y_search0
+    while y < y_search1:
+        if row_frac[y] <= max_row_ink_frac:
+            ys = y
+            while y < y_search1 and row_frac[y] <= max_row_ink_frac:
+                y += 1
+            if y - ys >= min_gap_px:
+                gaps.append((ys, y))
+        else:
+            y += 1
+    return gaps
+
+
 def find_valley_gap_interval(
     mask: np.ndarray,
     *,
@@ -406,11 +526,15 @@ def find_valley_gap_interval(
     gap_x1_frac: float = GAP_X1_FRAC,
     y_search0_frac: float = _VALLEY_SEARCH_Y0_FRAC,
     y_search1_frac: float = _VALLEY_SEARCH_Y1_FRAC,
+    full_width: bool = True,
 ) -> tuple[int, int] | None:
-    """Deepest ink-density valley in the center band (fallback for short/bridged gaps)."""
+    """Deepest ink-density valley (fallback when strict gaps merge systems)."""
     h, w = mask.shape
-    x0, x1 = _gap_band_columns(w, gap_x0_frac, gap_x1_frac)
-    row_ink = np.sum(mask[:, x0:x1], axis=1, dtype=np.float64)
+    if full_width:
+        row_ink = np.sum(mask, axis=1, dtype=np.float64)
+    else:
+        x0, x1 = _gap_band_columns(w, gap_x0_frac, gap_x1_frac)
+        row_ink = np.sum(mask[:, x0:x1], axis=1, dtype=np.float64)
     if row_ink.max() <= 0:
         return None
 
@@ -484,25 +608,25 @@ def page_vertical_segments(
     h, w = gray.shape
     m_gap = _ink_mask_array(gray, white_threshold)
 
-    gaps = find_vertical_gap_intervals(m_gap, min_gap_px=min_gap_px)
-    divider_gaps = find_system_divider_gap_intervals(m_gap)
-    gaps = _merge_nearby_gaps(gaps + divider_gaps)
-    gaps = drop_edge_margin_gaps(h, gaps)
+    gaps = _pick_system_split_gaps(m_gap, h, min_gap_px=min_gap_px)
+    divider_groups = _divider_row_groups(m_gap)
     m_any = _dilate_mask_bool(m_gap)
     gaps = filter_gaps_for_system_splits(
         m_any,
         gaps,
         min_below_staff_clusters=_MIN_SYSTEM_STAFF_CLUSTERS,
         page_h=h,
+        divider_mask=m_gap,
     )
 
     slices = regions_between_gaps(h, gaps)
-    if len(slices) == 1 and h > 300 and not divider_gaps:
+    if len(slices) == 1 and h > 300 and not divider_groups:
         valley = find_valley_gap_interval(
             m_gap,
             min_gap_px=min_gap_px,
             y_search0_frac=_VALLEY_SYSTEM_Y0_FRAC,
             y_search1_frac=_VALLEY_SYSTEM_Y1_FRAC,
+            full_width=True,
         )
         if valley is not None:
             vg = filter_gaps_for_system_splits(
@@ -510,6 +634,7 @@ def page_vertical_segments(
                 drop_edge_margin_gaps(h, [valley]),
                 min_below_staff_clusters=_MIN_SYSTEM_STAFF_CLUSTERS,
                 page_h=h,
+                divider_mask=m_gap,
             )
             if vg:
                 slices = regions_between_gaps(h, vg)

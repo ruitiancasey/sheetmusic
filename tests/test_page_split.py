@@ -116,8 +116,11 @@ class TestPageSplit(unittest.TestCase):
             m[y, rx0:rx1] = True
         m[:, cx0:cx1] = False
         gaps = find_system_divider_gap_intervals(m)
-        self.assertEqual(gaps, [(700, 730)])
-        self.assertTrue(gap_has_system_divider_mark(m, 700, 730))
+        self.assertEqual(len(gaps), 1)
+        gs, ge = gaps[0]
+        self.assertGreaterEqual(gs, 675)
+        self.assertLessEqual(ge, 755)
+        self.assertTrue(gap_has_system_divider_mark(m, gs, ge))
 
     def test_divider_gap_not_confused_with_center_ink(self) -> None:
         h, w = 500, 1700
