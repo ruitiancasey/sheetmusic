@@ -1,6 +1,6 @@
 # Sheet music → Google Slides
 
-Local CLI: rasterize a PDF, split each page 50% top/bottom, skip non-music sections, fit each half to 16:9 (no cropping of notation), then build a **new** Google Slides deck via **OAuth**.
+Local CLI: rasterize a PDF, split pages at system boundaries, skip text/cover junk, tight-crop notation, optionally upload to a **new** Google Slides deck via **OAuth**.
 
 ## Setup
 
@@ -42,6 +42,7 @@ Options:
 - `--valign top|center|bottom` — placement in the 16:9 frame after scaling (default **bottom**: letterboxing from wide crops sits **above** the staff, not under it). Does not change how the PDF is cropped—only where the image sits on the slide.
 - `--save-images ./out` — write slide PNGs for inspection.
 - `--images-only` — save PNGs only (no Google upload); requires `--save-images`.
+- `--strip-piano` — remove piano from each slide (default: keep piano).
 - `--credentials` / `--token` — paths to OAuth client JSON and saved token.
 
 On success, the **presentation URL** is printed to stdout.
