@@ -1,0 +1,24 @@
+[project]
+name = "sheet-music-to-slides"
+version = "0.1.0"
+description = "Convert sheet music PDFs to Google Slides (half-pages, OAuth)"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "google-api-python-client>=2.100.0",
+  "google-auth-oauthlib>=1.2.0",
+  "google-auth-httplib2>=0.2.0",
+  "Pillow>=10.0.0",
+  "PyMuPDF>=1.23.0",
+  "numpy>=1.24.0",
+]
+
+[project.scripts]
+sheet-music-to-slides = "sheet_music_to_slides.cli:main"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["sheet_music_to_slides"]

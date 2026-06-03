@@ -1,0 +1,15 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+credentials.json
+token.json
+.DS_Store
+
+# Generated output and local sample assets (re-export / add your own PDFs locally)
+Files/mythos_images/
+Files/combined_images/
+Files/*.pdf
+Files/*.png
